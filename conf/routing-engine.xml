@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:camel="http://camel.apache.org/schema/spring"
+       xsi:schemaLocation="
+       http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+ 	
+ 	<bean id="activemq" class="org.apache.activemq.camel.component.ActiveMQComponent">
+		<property name="brokerURL" value="vm://pofBroker"/>
+	</bean>
+ 	
+	<camelContext xmlns="http://camel.apache.org/schema/spring">
+
+		<onException>
+			<exception>eu.forgetit.middleware.WorkflowException</exception>
+			<redeliveryPolicy maximumRedeliveries="2"/>
+			<to uri="activemq:queue:ERROR.QUEUE"/>
+		</onException>
+
+		<route id="schedulerRoute">
+			<from uri="activemq:queue:SCHEDULER.QUEUE"/>
+			<choice>
+				<when>
+					<simple>${in.header.taskStatus} == 'COMPLETED'</simple>
+    	   			<bean ref="scheduler" method="closeTask"/>	
+    	   			<to uri="activemq:queue:LOG.QUEUE"/>				
+				</when>
+				<when>
+					<simple>${in.header.taskStatus} == 'FAILED'</simple>
+    	   			<bean ref="scheduler" method="closeTask(${in.header.taskId})"/>	
+    	   			<to uri="activemq:queue:LOG.QUEUE"/>				
+				</when>
+			    <otherwise>
+			     <choice>
+				    <when>
+						<simple>${in.header.taskType} == 'MANUAL_PRESERVATION'</simple>
+						<setHeader headerName="taskStatus">
+							 <constant>RUNNING</constant>
+						</setHeader>
+						<to uri="activemq:queue:MANUAL.PRESERVATION.QUEUE"/>
+						<to uri="activemq:queue:LOG.QUEUE"/>
+					</when>
+					<when>
+						<simple>${in.header.taskType} == 'AUTOMATIC_PRESERVATION'</simple>
+						<setHeader headerName="taskStatus">
+							 <constant>RUNNING</constant>
+						</setHeader>
+						<to uri="activemq:queue:AUTOMATIC.PRESERVATION.QUEUE"/>
+						<to uri="activemq:queue:LOG.QUEUE"/>
+					</when>
+					<when>
+						<simple>${in.header.taskType} == 'REACTIVATION'</simple>
+							<to uri="activemq:queue:REACTIVATION.QUEUE"/>
+							<to uri="activemq:queue:LOG.QUEUE"/>
+					</when>
+					<when>
+						<simple>${in.header.taskType} == 'USER_LOGS_ANALYSIS'</simple>
+							<to uri="activemq:queue:USER.LOGS.ANALYSIS.QUEUE"/>
+							<to uri="activemq:queue:LOG.QUEUE"/>
+					</when>
+					<otherwise>
+							<to uri="activemq:queue:TEST.QUEUE"/>
+							<to uri="activemq:queue:LOG.QUEUE"/>
+					</otherwise>
+				 </choice>
+			    </otherwise>
+			</choice>	
+		</route>
+		
+		<route id="manualPreservationRoute">
+			<from uri="activemq:queue:MANUAL.PRESERVATION.QUEUE"/>
+			<bean ref="collector" method="parseResources" />
+			<bean ref="collector" method="fetchResources" />
+			<removeHeaders pattern="iamUserID"/>
+			<setHeader headerName="iamType">
+				 <constant>ALL</constant>
+			</setHeader>
+			<bean ref="extractor" method="executeImageAnalysis"/>
+			<bean ref="contextualizer" method="executeTextContextualization"/>
+			<bean ref="archiver" method="ingestSIP"/>
+			<bean ref="archiver" method="updateRepository"/>
+			<setHeader headerName="taskStatus">
+				<constant>COMPLETED</constant>
+			</setHeader>
+			<multicast>
+				<to uri="activemq:topic:PRESERVATION.NOTIFICATION.TOPIC"/>		
+				<to uri="activemq:queue:SCHEDULER.QUEUE"/>
+			</multicast>
+			
+		</route> 
+
+		<route id="automaticPreservationRoute">
+			<from uri="activemq:queue:AUTOMATIC.PRESERVATION.QUEUE"/>
+			<bean ref="collector" method="parseBulkRequest" />
+			<bean ref="collector" method="fetchBulkResources" />
+			<removeHeaders pattern="iamUserID"/>
+			<setHeader headerName="iamType">
+				 <constant>ALL</constant>
+			</setHeader>
+			<bean ref="contextualizer" method="executeTextContextualization"/>
+			<bean ref="archiver" method="bulkIngestSIP"/>
+			<bean ref="archiver" method="updateRepository"/>
+			<setHeader headerName="taskStatus">
+				<constant>COMPLETED</constant>
+			</setHeader>
+			<multicast>
+				<to uri="activemq:topic:PRESERVATION.NOTIFICATION.TOPIC"/>		
+				<to uri="activemq:queue:SCHEDULER.QUEUE"/>
+			</multicast>
+			
+		</route> 
+		<route id="userLogsAnalysisRoute">
+			<from uri="activemq:queue:USER.LOGS.ANALYSIS.QUEUE"/>
+			<bean ref="forgettor" method="bulkInsertLog"/>
+			<bean ref="forgettor" method="updateValues"/>
+			<to uri="activemq:queue:LOG.QUEUE"/>
+		</route>
+
+		<route id="reActivationRoute">
+			<from uri="activemq:queue:REACTIVATION.QUEUE"/>
+			<setHeader headerName="taskStatus">
+				 <constant>RUNNING</constant>
+			</setHeader>
+			<bean ref="archiver" method="reactivateAIP"/>
+			<!-- 
+			<bean ref="collector" method="restore"/>
+			-->
+			<setHeader headerName="taskStatus">
+				<constant>COMPLETED</constant>
+			</setHeader>
+			<multicast>
+				<to uri="activemq:topic:REACTIVATION.NOTIFICATION.TOPIC"/>	
+				<to uri="activemq:queue:SCHEDULER.QUEUE"/>
+			</multicast>
+		</route>
+
+
+		<route id="errorRoute">
+			<from uri="activemq:queue:ERROR.QUEUE"/>
+			<setHeader headerName="taskStatus">
+				<constant>FAILED</constant>
+			</setHeader>
+			<to uri="activemq:queue:SCHEDULER.QUEUE"/>
+		</route>
+		
+		
+		<route id="loggingRoute">
+			<from uri="activemq:queue:LOG.QUEUE"/>
+			<bean ref="logger" method="processMessage"/>
+		</route>
+		
+		<!-- Hearth Beat Messages -->
+		<route id="periodicSchedulerRoute">
+			<from uri="timer:pof?period=6000s&amp;delay=180s"/>
+			<transform>
+				<simple>{"message":"Scheduler Heart Beat Message - ${date:now:yyyy-MM-dd HH:mm:ss}"}</simple>
+			</transform>
+			<to uri="activemq:queue:LOG.QUEUE"/>
+		</route>
+		
+	</camelContext>
+
+</beans>

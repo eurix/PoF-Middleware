@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	   xmlns:broker="http://activemq.apache.org/schema/core"
+	   xsi:schemaLocation="
+	   http://activemq.apache.org/schema/core http://activemq.apache.org/schema/core/activemq-core.xsd
+	   http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
+	<broker id="broker" brokerName="pofBroker" useShutdownHook="false" useJmx="true" persistent="true" dataDirectory="activemq-data"
+				   xmlns="http://activemq.apache.org/schema/core">
+		<transportConnectors>
+			<transportConnector name="vm" uri="vm://pofBroker"/>
+			<transportConnector name="tcp" uri="tcp://0.0.0.0:61616"/>
+		</transportConnectors>
+	</broker>
+	
+	<bean id="pooledConnectionFactory" class="org.apache.activemq.pool.PooledConnectionFactory" destroy-method="stop">
+    	<property name="connectionFactory">
+      		<bean class="org.apache.activemq.ActiveMQConnectionFactory">
+        		<property name="brokerURL" value="vm://pofBroker"/>
+      		</bean>
+    	</property>
+  	</bean>
+  	
+  	<bean id="scheduler.queue" class="org.apache.activemq.command.ActiveMQQueue">
+		<constructor-arg value="SCHEDULER.QUEUE"/>
+	</bean>
+	<bean id="preservation.queue" class="org.apache.activemq.command.ActiveMQQueue">
+		<constructor-arg value="MANUAL.PRESERVATION.QUEUE"/>
+	</bean>
+	<bean id="automatic.preservation.queue" class="org.apache.activemq.command.ActiveMQQueue">
+		<constructor-arg value="AUTOMATIC.PRESERVATION.QUEUE"/>
+	</bean>
+	<bean id="reactivation.queue" class="org.apache.activemq.command.ActiveMQQueue">
+		<constructor-arg value="REACTIVATION.QUEUE"/>
+	</bean>
+	<bean id="user.logs.analysis.queue" class="org.apache.activemq.command.ActiveMQQueue">
+		<constructor-arg value="USER.LOGS.ANALYSIS.QUEUE"/>
+	</bean>	
+	<bean id="test.queue" class="org.apache.activemq.command.ActiveMQQueue">
+		<constructor-arg value="TEST.QUEUE"/>
+	</bean>
+	<bean id="log.queue" class="org.apache.activemq.command.ActiveMQQueue">
+    	<constructor-arg value="LOG.QUEUE"/>
+  	</bean>		
+	<bean id="error.queue" class="org.apache.activemq.command.ActiveMQQueue">
+    	<constructor-arg value="ERROR.QUEUE"/>
+  	</bean>
+	<bean id="dead.message.queue" class="org.apache.activemq.command.ActiveMQQueue">
+    	<constructor-arg value="DEAD.MESSAGE.QUEUE"/>
+  	</bean>
+  	
+  	<bean id="reactivation.notification.topic" class="org.apache.activemq.command.ActiveMQTopic">
+    	<constructor-arg value="REACTIVATION.NOTIFICATION.TOPIC" />
+	</bean>
+
+	<bean id="preservation.notification.topic" class="org.apache.activemq.command.ActiveMQTopic">
+    	<constructor-arg value="PRESERVATION.NOTIFICATION.TOPIC" />
+	</bean>
+
+	<bean id="scheduler" class="eu.forgetit.middleware.component.Scheduler" />
+	<bean id="idManager" class="eu.forgetit.middleware.component.IDManager" />
+	<bean id="collector" class="eu.forgetit.middleware.component.Collector" />
+	<bean id="extractor" class="eu.forgetit.middleware.component.Extractor" />
+	<bean id="contextualizer" class="eu.forgetit.middleware.component.Contextualizer" />
+	<bean id="archiver" class="eu.forgetit.middleware.component.Archiver" />
+	<bean id="condensator" class="eu.forgetit.middleware.component.Condensator" />
+	<bean id="forgettor" class="eu.forgetit.middleware.component.Forgettor" />
+	<bean id="capm" class="eu.forgetit.middleware.component.CtxAwarePresManager" />
+	<bean id="logger" class="eu.forgetit.middleware.broker.MessageLogger" />
+	
+</beans>
